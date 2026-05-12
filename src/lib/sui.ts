@@ -242,23 +242,32 @@ export async function getOracle(id: string): Promise<Oracle | null> {
 }
 
 /// Read the Predict shared object's vault state and derive PLP NAV.
+/// PLP supply is read from the TreasuryCap field nested inside Predict —
+/// the standard `getTotalSupply` RPC can't find it because the TreasuryCap
+/// is owned by a shared object, not discoverable by the package-creation
+/// lookup the RPC uses.
 export async function getVaultState(): Promise<VaultState | null> {
-  const [predictObj, plpSupply] = await Promise.all([
-    client.getObject({ id: PREDICT_OBJ, options: { showContent: true } }),
-    client.getTotalSupply({ coinType: PLP_TYPE }),
-  ]);
+  const predictObj = await client.getObject({
+    id: PREDICT_OBJ,
+    options: { showContent: true },
+  });
 
   const predictFields = (predictObj.data?.content as any)?.fields;
   if (!predictFields) return null;
+
   const vault = predictFields.vault?.fields;
   if (!vault) return null;
+
+  // PLP supply: treasury_cap.fields.total_supply.fields.value
+  const supplyValue =
+    predictFields.treasury_cap?.fields?.total_supply?.fields?.value ?? "0";
 
   const balance = fromQuoteUnits(vault.balance ?? "0");
   const totalMtm = fromQuoteUnits(vault.total_mtm ?? "0");
   const totalMaxPayout = fromQuoteUnits(vault.total_max_payout ?? "0");
   const vaultValue = Math.max(0, balance - totalMtm);
   const available = Math.max(0, balance - totalMaxPayout);
-  const plpTotalSupply = Number(BigInt(plpSupply.value)) / 10 ** PLP_DECIMALS;
+  const plpTotalSupply = Number(BigInt(supplyValue)) / 10 ** PLP_DECIMALS;
   const plpNav = plpTotalSupply > 0 ? vaultValue / plpTotalSupply : 1;
 
   return {

@@ -103,19 +103,19 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
-      try {
-        const [v, plp, dusdc] = await Promise.all([
-          getVaultState(),
-          account ? getUserPlpBalance(account.address) : Promise.resolve(0),
-          account ? getUserDusdcBalance(account.address) : Promise.resolve(0),
-        ]);
-        if (cancelled) return;
-        setVault(v);
-        setUserPlp(plp);
-        setUserDusdc(dusdc);
-      } catch {
-        /* swallow */
-      }
+      // Fetch each independently so one failure doesn't blank everything.
+      const [vSettled, plpSettled, dusdcSettled] = await Promise.allSettled([
+        getVaultState(),
+        account ? getUserPlpBalance(account.address) : Promise.resolve(0),
+        account ? getUserDusdcBalance(account.address) : Promise.resolve(0),
+      ]);
+      if (cancelled) return;
+      if (vSettled.status === "fulfilled") setVault(vSettled.value);
+      else console.warn("vault read failed:", vSettled.reason);
+      if (plpSettled.status === "fulfilled") setUserPlp(plpSettled.value);
+      else console.warn("PLP balance read failed:", plpSettled.reason);
+      if (dusdcSettled.status === "fulfilled") setUserDusdc(dusdcSettled.value);
+      else console.warn("dUSDC balance read failed:", dusdcSettled.reason);
     };
     tick();
     const id = setInterval(tick, VAULT_REFRESH_MS);
