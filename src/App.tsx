@@ -38,28 +38,47 @@ export default function App() {
 
   const tickRef = useRef(0);
 
+  // Refresh the oracle list on mount + every 60s. Block Scholes spawns new
+  // oracles every ~15min and existing ones drop out as they expire — without
+  // periodic refresh the picker drifts out of sync.
   useEffect(() => {
     let cancelled = false;
-    listLiveOracles()
-      .then((list) => {
+    let isFirst = true;
+
+    const refresh = async () => {
+      try {
+        const list = await listLiveOracles();
         if (cancelled) return;
         setOracles(list);
-        setOraclesLoading(false);
+        if (isFirst) {
+          setOraclesLoading(false);
+          isFirst = false;
+        }
         if (list.length > 0 && !selectedOracleId) {
           const active = list.filter((o) => o.status === 1);
-          const safe = active.find((o) => o.expiry - Date.now() > 30 * 60 * 1000);
+          const safe = active.find(
+            (o) => o.expiry - Date.now() > 30 * 60 * 1000,
+          );
           setSelectedOracleId(
             safe?.id ?? active[0]?.id ?? list.find((o) => o.status !== 3)?.id ?? null,
           );
         }
-      })
-      .catch((e) => {
+      } catch (e: any) {
         if (cancelled) return;
-        setOracleError(`failed to load oracles: ${e.message}`);
-        setOraclesLoading(false);
-      });
+        if (isFirst) {
+          setOracleError(`failed to load oracles: ${e.message}`);
+          setOraclesLoading(false);
+        } else {
+          console.warn("oracle list refresh failed:", e.message);
+        }
+      }
+    };
+
+    refresh();
+    const id = setInterval(refresh, 60_000);
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

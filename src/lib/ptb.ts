@@ -12,6 +12,47 @@ export function buildCreateManager(): Transaction {
   return tx;
 }
 
+/// Build a PTB that deposits quote asset (e.g. dUSDC) FROM the user's wallet
+/// INTO their PredictManager's wrapped BalanceManager. Required before
+/// minting binary positions — predict::mint pulls from the manager, not the
+/// wallet directly.
+export function buildDepositToManager(opts: {
+  managerId: string;
+  coinObjectId: string;
+  amountQuote: bigint;
+  quoteAssetType: string;
+}): Transaction {
+  const tx = new Transaction();
+  const depositCoin = tx.splitCoins(tx.object(opts.coinObjectId), [
+    tx.pure.u64(opts.amountQuote),
+  ])[0];
+
+  tx.moveCall({
+    target: `${PREDICT_PKG}::predict_manager::deposit`,
+    typeArguments: [opts.quoteAssetType],
+    arguments: [tx.object(opts.managerId), depositCoin],
+  });
+  return tx;
+}
+
+/// Build a PTB that withdraws quote asset FROM the PredictManager back to
+/// the user's wallet. Mirror of buildDepositToManager.
+export function buildWithdrawFromManager(opts: {
+  sender: string;
+  managerId: string;
+  amountQuote: bigint;
+  quoteAssetType: string;
+}): Transaction {
+  const tx = new Transaction();
+  const coin = tx.moveCall({
+    target: `${PREDICT_PKG}::predict_manager::withdraw`,
+    typeArguments: [opts.quoteAssetType],
+    arguments: [tx.object(opts.managerId), tx.pure.u64(opts.amountQuote)],
+  });
+  tx.transferObjects([coin], tx.pure.address(opts.sender));
+  return tx;
+}
+
 /// Build a PTB that mints a binary position (UP or DOWN) on a market.
 /// Requires the user's PredictManager to hold enough dUSDC for cost + gas.
 export function buildMintBinary(opts: {
