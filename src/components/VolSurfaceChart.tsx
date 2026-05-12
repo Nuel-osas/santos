@@ -85,33 +85,26 @@ export function VolSurfaceChart({
 
   return (
     <div className="rounded-2xl border border-border bg-card">
-      {/* Hero header — big numbers, editorial spacing */}
-      <div className="grid grid-cols-2 gap-6 border-b border-border p-6 sm:grid-cols-4">
-        <Hero
-          kicker={oracle.underlying.symbol}
-          value={`$${oracle.spot.toLocaleString(undefined, { maximumFractionDigits: oracle.underlying.priceDecimals })}`}
-          hint={`fwd $${oracle.forward.toLocaleString(undefined, { maximumFractionDigits: oracle.underlying.priceDecimals })}`}
-        />
-        <Hero
-          kicker="ATM iv"
-          value={`${(atm.iv * 100).toFixed(1)}%`}
-          hint={`${(ivMin * 100).toFixed(0)}–${(ivMax * 100).toFixed(0)}% range`}
-        />
-        <Hero
-          kicker="Expires in"
-          value={expiryLabel}
-          hint={`${new Date(oracle.expiry).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`}
-        />
-        <Hero
-          kicker="Status"
-          value={
-            <span className="inline-flex items-baseline gap-2">
-              <span className={`size-2 rounded-full ${STATUS_COLOR[oracle.status]} self-center`} />
-              <span>{STATUS_LABEL[oracle.status]}</span>
-            </span>
-          }
-          hint={`updated ${ageSec}s ago`}
-        />
+      {/* Terminal readout strip — Bloomberg-style single-row ticker */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-6 py-3 font-mono text-[11px] uppercase tracking-wider tabular-nums">
+        <Segment label={oracle.underlying.symbol} accent />
+        <Sep />
+        <Segment label="spot" value={`$${oracle.spot.toLocaleString(undefined, { maximumFractionDigits: oracle.underlying.priceDecimals })}`} />
+        <Sep />
+        <Segment label="fwd" value={`$${oracle.forward.toLocaleString(undefined, { maximumFractionDigits: oracle.underlying.priceDecimals })}`} />
+        <Sep />
+        <Segment label="atm iv" value={`${(atm.iv * 100).toFixed(1)}%`} />
+        <Sep />
+        <Segment label="t" value={expiryLabel.toUpperCase()} />
+        <Sep />
+        <Segment label="status" value={
+          <span className="inline-flex items-center gap-1.5">
+            <span className={`size-1.5 rounded-full ${STATUS_COLOR[oracle.status]}`} />
+            {STATUS_LABEL[oracle.status]}
+          </span>
+        } />
+        <Sep />
+        <Segment label="Δ" value={`${ageSec}s ago`} dim />
       </div>
 
       <div className="p-6">
@@ -213,26 +206,35 @@ export function VolSurfaceChart({
   );
 }
 
-function Hero({
-  kicker,
+function Segment({
+  label,
   value,
-  hint,
+  accent,
+  dim,
 }: {
-  kicker: string;
-  value: React.ReactNode;
-  hint?: string;
+  label: string;
+  value?: React.ReactNode;
+  accent?: boolean;
+  dim?: boolean;
 }) {
   return (
-    <div>
-      <div className="text-[10px] uppercase tracking-widest text-text-faint">
-        {kicker}
-      </div>
-      <div className="mt-1 font-mono text-2xl tabular-nums text-text">
-        {value}
-      </div>
-      {hint && (
-        <div className="mt-1 font-mono text-[10px] text-text-faint">{hint}</div>
+    <span className="inline-flex items-baseline gap-1.5">
+      <span
+        className={
+          accent
+            ? "text-accent-2 font-semibold"
+            : "text-text-faint"
+        }
+      >
+        {label}
+      </span>
+      {value !== undefined && (
+        <span className={dim ? "text-text-dim" : "text-text"}>{value}</span>
       )}
-    </div>
+    </span>
   );
+}
+
+function Sep() {
+  return <span className="text-text-faint">▸</span>;
 }

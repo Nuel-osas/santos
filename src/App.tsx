@@ -135,9 +135,9 @@ export default function App() {
       {/* ─ Editorial title block ─ */}
       <header className="flex items-end justify-between gap-4 border-b border-border pb-6">
         <div>
-          <p className="kicker mb-2">Predict · dapp · v0</p>
+          <p className="kicker mb-2">santos · predict on sui · v0</p>
           <h1 className="m-0 text-4xl font-bold tracking-tighter gradient-heading">
-            Trade volatility on Sui.
+            Read the smile before it moves.
           </h1>
         </div>
         <div className="text-right font-mono text-[10px] text-text-faint">
@@ -181,7 +181,7 @@ export default function App() {
         <div className="grid gap-5 lg:grid-cols-2">
           {/* LEFT — TRADE column */}
           <div className="space-y-5">
-            <SectionHeader title="Trade" subtitle="Mint binary options against the vault" />
+            <SectionHeader number="01" title="TRADE" subtitle="Mint binary options against the vault" />
             <ManagerPanel
               selectedManagerId={selectedManagerId}
               onSelectManager={setSelectedManagerId}
@@ -191,7 +191,7 @@ export default function App() {
 
           {/* RIGHT — LIQUIDITY column */}
           <div className="space-y-5">
-            <SectionHeader title="Liquidity" subtitle="Supply dUSDC, earn vault yield" />
+            <SectionHeader number="02" title="LIQUIDITY" subtitle="Supply dUSDC, earn vault yield" />
             <VaultPanel vault={vault} userPlpBalance={userPlp} />
             <LPForm
               userDusdc={userDusdc}
@@ -227,12 +227,25 @@ export default function App() {
   );
 }
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+function SectionHeader({
+  number,
+  title,
+  subtitle,
+}: {
+  number: string;
+  title: string;
+  subtitle: string;
+}) {
   return (
     <div className="flex items-baseline justify-between border-b border-border pb-2">
-      <span className="font-mono text-xs uppercase tracking-widest text-text">
-        {title}
-      </span>
+      <div className="flex items-baseline gap-3">
+        <span className="font-mono text-[11px] text-accent-2 tabular-nums">
+          {number}
+        </span>
+        <span className="font-mono text-xs uppercase tracking-widest text-text">
+          {title}
+        </span>
+      </div>
       <span className="font-mono text-[10px] text-text-faint">{subtitle}</span>
     </div>
   );
