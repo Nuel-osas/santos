@@ -5,6 +5,7 @@ import { OraclePicker } from "./components/OraclePicker";
 import { WalletBar } from "./components/WalletBar";
 import { ManagerPanel } from "./components/ManagerPanel";
 import { TradeForm } from "./components/TradeForm";
+import { PositionsList } from "./components/PositionsList";
 import { VaultPanel } from "./components/VaultPanel";
 import { LPForm } from "./components/LPForm";
 import {
@@ -31,6 +32,7 @@ export default function App() {
   const [oracleError, setOracleError] = useState<string | null>(null);
 
   const [selectedManagerId, setSelectedManagerId] = useState<string | null>(null);
+  const [positionsRefreshKey, setPositionsRefreshKey] = useState(0);
 
   const [vault, setVault] = useState<VaultState | null>(null);
   const [userPlp, setUserPlp] = useState<number>(0);
@@ -206,6 +208,11 @@ export default function App() {
               onSelectManager={setSelectedManagerId}
             />
             <TradeForm oracle={oracleState} managerId={selectedManagerId} />
+            <PositionsList
+              managerId={selectedManagerId}
+              refreshKey={positionsRefreshKey}
+              onMutate={() => setPositionsRefreshKey((k) => k + 1)}
+            />
           </div>
 
           {/* RIGHT — LIQUIDITY column */}

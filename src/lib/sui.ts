@@ -293,6 +293,86 @@ export async function getUserDusdcBalance(owner: string): Promise<number> {
   return Number(BigInt(r.totalBalance)) / 1_000_000;
 }
 
+/// Read a PredictManager's wrapped BalanceManager balance for a given quote
+/// asset. dUSDC inside the manager is what predict::mint withdraws from —
+/// not the user's wallet. So the trade flow requires this to be > cost.
+export async function getManagerQuoteBalance(
+  managerId: string,
+  coinType: string = DUSDC_TYPE,
+): Promise<number> {
+  const mgrObj = await client.getObject({
+    id: managerId,
+    options: { showContent: true },
+  });
+  const bagId =
+    (mgrObj.data?.content as any)?.fields?.balance_manager?.fields?.balances
+      ?.fields?.id?.id;
+  if (!bagId) return 0;
+
+  const dfs = await client.getDynamicFields({ parentId: bagId });
+  // The dynamic field's name encodes the coin type. Look for one matching.
+  const stripped = coinType.replace(/^0x0*/, "0x");
+  const match = dfs.data.find((df) => {
+    const t = df.objectType ?? "";
+    return t.includes(stripped) || t.includes(coinType);
+  });
+  if (!match) return 0;
+
+  const fieldObj = await client.getObject({
+    id: match.objectId,
+    options: { showContent: true },
+  });
+  const fields = (fieldObj.data?.content as any)?.fields;
+  // Dynamic field value is wrapped: fields.value.fields.value (Balance<T>.value)
+  const raw =
+    fields?.value?.fields?.value ?? fields?.value ?? fields?.balance ?? "0";
+  return Number(BigInt(raw)) / 1_000_000;
+}
+
+export type Position = {
+  oracleId: string;
+  expiry: number;
+  strike: number;
+  isUp: boolean;
+  quantity: number;
+};
+
+export async function getUserPositions(managerId: string): Promise<Position[]> {
+  const mgr = await client.getObject({
+    id: managerId,
+    options: { showContent: true },
+  });
+  const tableId = (mgr.data?.content as any)?.fields?.positions?.fields?.id?.id;
+  if (!tableId) return [];
+
+  const dfs = await client.getDynamicFields({ parentId: tableId });
+  if (dfs.data.length === 0) return [];
+
+  const fields = await client.multiGetObjects({
+    ids: dfs.data.map((d) => d.objectId),
+    options: { showContent: true },
+  });
+
+  const out: Position[] = [];
+  for (const f of fields) {
+    const c = (f.data?.content as any)?.fields;
+    const key = c?.name?.fields;
+    const qty = c?.value;
+    if (!key || qty == null) continue;
+    // Skip ghost entries: the contract leaves Table entries in place after
+    // redeem-to-zero rather than removing them. qty=0 = no open position.
+    if (BigInt(qty) === 0n) continue;
+    out.push({
+      oracleId: key.oracle_id,
+      expiry: Number(key.expiry),
+      strike: Number(BigInt(key.strike)) / 1e9,
+      isUp: Number(key.direction) === 0,
+      quantity: Number(BigInt(qty)) / 1e6,
+    });
+  }
+  return out.sort((a, b) => a.expiry - b.expiry);
+}
+
 export async function findUserPredictManagers(
   owner: string,
 ): Promise<ManagerSummary[]> {
