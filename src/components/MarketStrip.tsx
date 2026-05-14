@@ -190,8 +190,10 @@ function ExpiryPill({
             : `${Math.round(minutesToExpiry / 60 / 24)}d`;
 
   const isSoon = status === 1 && minutesToExpiry < 30 && minutesToExpiry >= 0;
-  const disabled = status === 3;
 
+  // Settled pills are visually dimmed but stay clickable so users can inspect
+  // their tape / vol surface / past positions. Trading is gated downstream
+  // by the TradeForm reading oracle.status.
   // Brightness tiering: active = full color, pending = warn-toned, settled =
   // muted. Selected overrides with the accent treatment.
   const baseClass = selected
@@ -205,9 +207,12 @@ function ExpiryPill({
   return (
     <button
       onClick={onClick}
-      disabled={disabled}
-      title={`oracle ${oracle.id}`}
-      className={`flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 font-mono text-[11px] transition disabled:cursor-not-allowed ${baseClass}`}
+      title={
+        status === 3
+          ? `settled oracle ${oracle.id} — read-only`
+          : `oracle ${oracle.id}`
+      }
+      className={`flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 font-mono text-[11px] transition ${baseClass}`}
     >
       <span
         className={`size-1.5 rounded-full ${STATUS_DOT[status]} ${status === 3 ? "opacity-50" : ""}`}

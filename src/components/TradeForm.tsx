@@ -85,6 +85,10 @@ export function TradeForm({
 
   // Validation
   const reasons: string[] = [];
+  if (oracle.status === 3)
+    reasons.push("Market has settled — read-only. Pick a live expiry to trade.");
+  else if (oracle.status === 2)
+    reasons.push("Market expired, awaiting settlement — can't mint here.");
   if (!account) reasons.push("Connect wallet");
   if (!managerId) reasons.push("Create a PredictManager first");
   if (!qtyValid) reasons.push("Quantity must be > 0");
