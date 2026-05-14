@@ -6,12 +6,14 @@ import {
 } from "@mysten/dapp-kit";
 import {
   getUserPositions,
+  getUserRangePositions,
   getPositionHistory,
   DUSDC_TYPE,
   type Position,
+  type RangePosition,
   type PositionHistoryEntry,
 } from "../lib/sui";
-import { buildRedeemBinary } from "../lib/ptb";
+import { buildRedeemBinary, buildRedeemRange } from "../lib/ptb";
 
 type Tab = "open" | "history";
 
@@ -30,6 +32,7 @@ export function PositionsList({
 
   const [tab, setTab] = useState<Tab>("open");
   const [positions, setPositions] = useState<Position[]>([]);
+  const [ranges, setRanges] = useState<RangePosition[]>([]);
   const [history, setHistory] = useState<PositionHistoryEntry[]>([]);
   // Initialize to true if a manager is present so the auto-tab effect can
   // tell "haven't loaded yet" apart from "loaded and empty".
@@ -56,26 +59,31 @@ export function PositionsList({
     if (didAutoTab.current) return;
     if (loadingOpen || loadingHistory) return;
     didAutoTab.current = true;
-    if (positions.length === 0 && history.length > 0) {
+    if (positions.length === 0 && ranges.length === 0 && history.length > 0) {
       setTab("history");
     }
-  }, [loadingOpen, loadingHistory, positions.length, history.length]);
+  }, [loadingOpen, loadingHistory, positions.length, ranges.length, history.length]);
 
-  // Open positions — fetched whenever manager or refreshKey changes.
+  // Open positions — binary + range, fetched whenever manager or refreshKey changes.
   useEffect(() => {
     if (!managerId) {
       setPositions([]);
+      setRanges([]);
       setLoadingOpen(false);
       return;
     }
     let cancelled = false;
     setLoadingOpen(true);
-    getUserPositions(managerId)
-      .then((p) => {
-        if (!cancelled) setPositions(p);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message);
+    Promise.allSettled([
+      getUserPositions(managerId),
+      getUserRangePositions(managerId),
+    ])
+      .then(([binSettled, rangeSettled]) => {
+        if (cancelled) return;
+        if (binSettled.status === "fulfilled") setPositions(binSettled.value);
+        else setError((binSettled.reason as Error).message);
+        if (rangeSettled.status === "fulfilled") setRanges(rangeSettled.value);
+        else console.warn("range positions load failed:", rangeSettled.reason);
       })
       .finally(() => {
         if (!cancelled) setLoadingOpen(false);
@@ -113,7 +121,7 @@ export function PositionsList({
 
   const handleRedeem = (p: Position) => {
     setError(null);
-    const key = `${p.oracleId}:${p.strike}:${p.isUp}`;
+    const key = `bin:${p.oracleId}:${p.strike}:${p.isUp}`;
     setBusyKey(key);
     const tx = buildRedeemBinary({
       managerId,
@@ -140,6 +148,35 @@ export function PositionsList({
     );
   };
 
+  const handleRedeemRange = (r: RangePosition) => {
+    setError(null);
+    const key = `range:${r.oracleId}:${r.lowerStrike}:${r.higherStrike}`;
+    setBusyKey(key);
+    const tx = buildRedeemRange({
+      managerId,
+      oracleId: r.oracleId,
+      expiry: BigInt(r.expiry),
+      lowerStrike: BigInt(Math.round(r.lowerStrike * 1_000_000_000)),
+      higherStrike: BigInt(Math.round(r.higherStrike * 1_000_000_000)),
+      quantity: BigInt(Math.round(r.quantity * 1_000_000)),
+      quoteAssetType: DUSDC_TYPE,
+    });
+    signAndExecute(
+      { transaction: tx },
+      {
+        onSuccess: async (res) => {
+          await suiClient.waitForTransaction({ digest: res.digest });
+          setBusyKey(null);
+          onMutate();
+        },
+        onError: (e: Error) => {
+          setError(e.message);
+          setBusyKey(null);
+        },
+      },
+    );
+  };
+
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -148,7 +185,7 @@ export function PositionsList({
             label="Open"
             active={tab === "open"}
             onClick={() => setTab("open")}
-            count={positions.length}
+            count={positions.length + ranges.length}
           />
           <TabBtn
             label="History"
@@ -161,7 +198,7 @@ export function PositionsList({
           {tab === "open"
             ? loadingOpen
               ? "loading…"
-              : `${positions.length} live`
+              : `${positions.length} binary · ${ranges.length} range`
             : loadingHistory
               ? "loading…"
               : `${history.length} entries`}
@@ -171,10 +208,12 @@ export function PositionsList({
       {tab === "open" ? (
         <OpenList
           positions={positions}
+          ranges={ranges}
           loading={loadingOpen}
           busyKey={busyKey}
           isPending={isPending}
           onRedeem={handleRedeem}
+          onRedeemRange={handleRedeemRange}
         />
       ) : (
         <HistoryList history={history} loading={loadingHistory} />
@@ -191,21 +230,25 @@ export function PositionsList({
 
 function OpenList({
   positions,
+  ranges,
   loading,
   busyKey,
   isPending,
   onRedeem,
+  onRedeemRange,
 }: {
   positions: Position[];
+  ranges: RangePosition[];
   loading: boolean;
   busyKey: string | null;
   isPending: boolean;
   onRedeem: (p: Position) => void;
+  onRedeemRange: (r: RangePosition) => void;
 }) {
-  if (loading && positions.length === 0) {
+  if (loading && positions.length === 0 && ranges.length === 0) {
     return <div className="font-mono text-xs text-text-faint">loading…</div>;
   }
-  if (positions.length === 0) {
+  if (positions.length === 0 && ranges.length === 0) {
     return (
       <div className="text-xs text-text-dim">
         No open positions. Mint one in the trade form.
@@ -216,7 +259,7 @@ function OpenList({
   return (
     <>
       {positions.map((p) => {
-        const key = `${p.oracleId}:${p.strike}:${p.isUp}`;
+        const key = `bin:${p.oracleId}:${p.strike}:${p.isUp}`;
         const minutesToExpiry = Math.round((p.expiry - Date.now()) / 60000);
         const expiryDate = new Date(p.expiry);
         const expiryStr = expiryDate.toLocaleString("en-US", {
@@ -261,6 +304,60 @@ function OpenList({
                 expired
                   ? "Claim settled payout once oracle settles"
                   : "Sell position back at the current live bid (early exit)"
+              }
+              className="rounded-md border border-border bg-bg px-3 py-1.5 font-mono text-[11px] text-text-dim transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? (expired ? "redeeming…" : "closing…") : expired ? "redeem" : "close"}
+            </button>
+          </div>
+        );
+      })}
+
+      {ranges.map((r) => {
+        const key = `range:${r.oracleId}:${r.lowerStrike}:${r.higherStrike}`;
+        const minutesToExpiry = Math.round((r.expiry - Date.now()) / 60000);
+        const expiryDate = new Date(r.expiry);
+        const expiryStr = expiryDate.toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
+        const expired = minutesToExpiry <= 0;
+        const busy = isPending && busyKey === key;
+
+        return (
+          <div
+            key={key}
+            className="mb-2 grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-border bg-bg-soft p-3 last:mb-0"
+          >
+            <div className="font-mono text-xs font-semibold text-accent">
+              ↔ RANGE
+            </div>
+            <div className="min-w-0">
+              <div className="font-mono text-xs text-text tabular-nums">
+                ${r.lowerStrike.toLocaleString()}–${r.higherStrike.toLocaleString()}{" "}
+                · ${r.quantity.toFixed(2)} payout
+              </div>
+              <div className="font-mono text-[10px] text-text-faint">
+                {expiryStr} ·{" "}
+                {expired
+                  ? "expired — awaiting settlement"
+                  : minutesToExpiry < 60
+                    ? `${minutesToExpiry}m left`
+                    : minutesToExpiry < 60 * 24
+                      ? `${Math.round(minutesToExpiry / 60)}h left`
+                      : `${Math.round(minutesToExpiry / 60 / 24)}d left`}
+              </div>
+            </div>
+            <button
+              onClick={() => onRedeemRange(r)}
+              disabled={busy}
+              title={
+                expired
+                  ? "Claim settled payout once oracle settles"
+                  : "Sell range back at the current live bid (early exit)"
               }
               className="rounded-md border border-border bg-bg px-3 py-1.5 font-mono text-[11px] text-text-dim transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
             >
