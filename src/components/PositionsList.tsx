@@ -8,12 +8,18 @@ import {
   getUserPositions,
   getUserRangePositions,
   getPositionHistory,
+  getRangePositionHistory,
   DUSDC_TYPE,
   type Position,
   type RangePosition,
   type PositionHistoryEntry,
+  type RangePositionHistoryEntry,
 } from "../lib/sui";
 import { buildRedeemBinary, buildRedeemRange } from "../lib/ptb";
+
+type HistoryRow =
+  | ({ kind: "binary" } & PositionHistoryEntry)
+  | ({ kind: "range" } & RangePositionHistoryEntry);
 
 type Tab = "open" | "history";
 
@@ -33,7 +39,7 @@ export function PositionsList({
   const [tab, setTab] = useState<Tab>("open");
   const [positions, setPositions] = useState<Position[]>([]);
   const [ranges, setRanges] = useState<RangePosition[]>([]);
-  const [history, setHistory] = useState<PositionHistoryEntry[]>([]);
+  const [history, setHistory] = useState<HistoryRow[]>([]);
   // Initialize to true if a manager is present so the auto-tab effect can
   // tell "haven't loaded yet" apart from "loaded and empty".
   const [loadingOpen, setLoadingOpen] = useState(!!managerId);
@@ -93,7 +99,7 @@ export function PositionsList({
     };
   }, [managerId, refreshKey]);
 
-  // History — same trigger. Fetched in parallel so the tab swap is instant.
+  // History — binary + range merged into one time-sorted list.
   useEffect(() => {
     if (!managerId) {
       setHistory([]);
@@ -102,12 +108,25 @@ export function PositionsList({
     }
     let cancelled = false;
     setLoadingHistory(true);
-    getPositionHistory(managerId)
-      .then((h) => {
-        if (!cancelled) setHistory(h);
-      })
-      .catch((e) => {
-        if (!cancelled) console.warn("history load failed:", e.message);
+    Promise.allSettled([
+      getPositionHistory(managerId),
+      getRangePositionHistory(managerId),
+    ])
+      .then(([binRes, rangeRes]) => {
+        if (cancelled) return;
+        const rows: HistoryRow[] = [];
+        if (binRes.status === "fulfilled") {
+          for (const r of binRes.value) rows.push({ kind: "binary", ...r });
+        } else {
+          console.warn("binary history load failed:", binRes.reason);
+        }
+        if (rangeRes.status === "fulfilled") {
+          for (const r of rangeRes.value) rows.push({ kind: "range", ...r });
+        } else {
+          console.warn("range history load failed:", rangeRes.reason);
+        }
+        rows.sort((a, b) => b.timestampMs - a.timestampMs);
+        setHistory(rows);
       })
       .finally(() => {
         if (!cancelled) setLoadingHistory(false);
@@ -374,7 +393,7 @@ function HistoryList({
   history,
   loading,
 }: {
-  history: PositionHistoryEntry[];
+  history: HistoryRow[];
   loading: boolean;
 }) {
   if (loading && history.length === 0) {
@@ -391,8 +410,6 @@ function HistoryList({
   return (
     <>
       {history.map((h, i) => {
-        const dirColor = h.isUp ? "text-success" : "text-danger";
-        const dirGlyph = h.isUp ? "↑ UP" : "↓ DOWN";
         const when = new Date(h.timestampMs).toLocaleString("en-US", {
           month: "short",
           day: "numeric",
@@ -415,17 +432,35 @@ function HistoryList({
             ? "P&L —"
             : `${pnl >= 0 ? "+" : "−"}$${Math.abs(pnl).toFixed(2)}`;
 
+        // Kind-specific glyph + strike label
+        const glyph =
+          h.kind === "binary"
+            ? h.isUp
+              ? "↑ UP"
+              : "↓ DOWN"
+            : "↔ RANGE";
+        const glyphColor =
+          h.kind === "binary"
+            ? h.isUp
+              ? "text-success"
+              : "text-danger"
+            : "text-accent";
+        const strikeLabel =
+          h.kind === "binary"
+            ? `$${h.strike.toLocaleString()}`
+            : `$${h.lowerStrike.toLocaleString()}–$${h.higherStrike.toLocaleString()}`;
+
         return (
           <div
-            key={`${h.txDigest}-${i}`}
+            key={`${h.kind}-${h.txDigest}-${i}`}
             className="mb-2 grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-border bg-bg-soft p-3 last:mb-0"
           >
-            <div className={`font-mono text-xs font-semibold ${dirColor}`}>
-              {dirGlyph}
+            <div className={`font-mono text-xs font-semibold ${glyphColor}`}>
+              {glyph}
             </div>
             <div className="min-w-0">
               <div className="font-mono text-xs text-text tabular-nums">
-                ${h.strike.toLocaleString()} · qty ${h.quantity.toFixed(2)}
+                {strikeLabel} · qty ${h.quantity.toFixed(2)}
               </div>
               <div className="font-mono text-[10px] text-text-faint">
                 {when} · {exitLabel} · entry{" "}

@@ -445,7 +445,7 @@ type MintFacts = { totalCost: number; totalQty: number };
 /// same position key.
 export async function getPositionHistory(
   managerId: string,
-  limit: number = 200,
+  limit: number = 500,
 ): Promise<PositionHistoryEntry[]> {
   const [redeemEvents, mintEvents] = await Promise.all([
     client.queryEvents({
@@ -512,6 +512,102 @@ export async function getPositionHistory(
       expiry: Number(j.expiry),
       strike: Number(BigInt(j.strike)) / 1e9,
       isUp: j.is_up,
+      quantity,
+      payout,
+      bidPrice: Number(BigInt(j.bid_price)) / 1e9,
+      isSettled: j.is_settled,
+      entryAskPrice,
+      pnl,
+    });
+  }
+  return out;
+}
+
+export type RangePositionHistoryEntry = {
+  txDigest: string;
+  timestampMs: number;
+  oracleId: string;
+  expiry: number;
+  lowerStrike: number;
+  higherStrike: number;
+  quantity: number;
+  payout: number;
+  bidPrice: number; // payout / qty in (0,1)
+  isSettled: boolean;
+  entryAskPrice: number | null;
+  pnl: number | null; // payout − qty × entryAskPrice
+};
+
+/// Mirrors getPositionHistory for ranges. Queries RangeRedeemed +
+/// RangeMinted, joins by (oracle_id, lower_strike, higher_strike), and
+/// emits one entry per redeem event with realized P&L.
+export async function getRangePositionHistory(
+  managerId: string,
+  limit: number = 500,
+): Promise<RangePositionHistoryEntry[]> {
+  const [redeemEvents, mintEvents] = await Promise.all([
+    client.queryEvents({
+      query: { MoveEventType: `${PREDICT_PKG}::predict::RangeRedeemed` },
+      limit,
+      order: "descending",
+    }),
+    client.queryEvents({
+      query: { MoveEventType: `${PREDICT_PKG}::predict::RangeMinted` },
+      limit,
+      order: "descending",
+    }),
+  ]);
+
+  const costBasis = new Map<string, MintFacts>();
+  for (const e of mintEvents.data) {
+    const j = e.parsedJson as {
+      manager_id: string;
+      oracle_id: string;
+      lower_strike: string;
+      higher_strike: string;
+      quantity: string;
+      cost: string;
+    };
+    if (!j || j.manager_id !== managerId) continue;
+    const key = `${j.oracle_id}:${j.lower_strike}:${j.higher_strike}`;
+    const cost = Number(BigInt(j.cost)) / 1e6;
+    const qty = Number(BigInt(j.quantity)) / 1e6;
+    const prev = costBasis.get(key) ?? { totalCost: 0, totalQty: 0 };
+    costBasis.set(key, {
+      totalCost: prev.totalCost + cost,
+      totalQty: prev.totalQty + qty,
+    });
+  }
+
+  const out: RangePositionHistoryEntry[] = [];
+  for (const e of redeemEvents.data) {
+    const j = e.parsedJson as {
+      manager_id: string;
+      oracle_id: string;
+      expiry: string;
+      lower_strike: string;
+      higher_strike: string;
+      quantity: string;
+      payout: string;
+      bid_price: string;
+      is_settled: boolean;
+    };
+    if (!j || j.manager_id !== managerId) continue;
+    const quantity = Number(BigInt(j.quantity)) / 1e6;
+    const payout = Number(BigInt(j.payout)) / 1e6;
+    const key = `${j.oracle_id}:${j.lower_strike}:${j.higher_strike}`;
+    const facts = costBasis.get(key);
+    const entryAskPrice =
+      facts && facts.totalQty > 0 ? facts.totalCost / facts.totalQty : null;
+    const pnl =
+      entryAskPrice != null ? payout - quantity * entryAskPrice : null;
+    out.push({
+      txDigest: e.id.txDigest,
+      timestampMs: Number(e.timestampMs ?? 0),
+      oracleId: j.oracle_id,
+      expiry: Number(j.expiry),
+      lowerStrike: Number(BigInt(j.lower_strike)) / 1e9,
+      higherStrike: Number(BigInt(j.higher_strike)) / 1e9,
       quantity,
       payout,
       bidPrice: Number(BigInt(j.bid_price)) / 1e9,
