@@ -6,6 +6,7 @@ import type { ManagerSummary } from "../lib/sui";
 const NAV = [
   { to: "/trade", label: "Trade" },
   { to: "/portfolio", label: "Portfolio" },
+  { to: "/leaderboard", label: "Leaderboard" },
   { to: "/vault", label: "Vault" },
 ];
 
@@ -23,9 +24,11 @@ export function AppHeader({ managers, selectedManagerId, onSelectManager }: Prop
       <div className="flex items-center gap-8">
         {/* Logo */}
         <div className="flex items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 font-mono text-[11px] font-bold tracking-tighter text-accent">
-            SA
-          </div>
+          <img
+            src="/logo.png"
+            alt="santos"
+            className="size-7 rounded-md object-cover"
+          />
           <span className="font-mono text-sm font-medium uppercase tracking-widest text-text">
             santos
           </span>
@@ -63,16 +66,40 @@ export function AppHeader({ managers, selectedManagerId, onSelectManager }: Prop
           />
         )}
         {account && (
-          <div className="hidden items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 sm:flex">
-            <span className="size-1.5 rounded-full bg-success" />
-            <span className="tabular font-mono text-[11px] text-text-dim">
-              {account.address.slice(0, 6)}…{account.address.slice(-4)}
-            </span>
-          </div>
+          <CopyAddressChip address={account.address} />
         )}
         <ConnectButton />
       </div>
     </header>
+  );
+}
+
+function CopyAddressChip({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // older browsers / locked clipboard — fall back silently
+    }
+  };
+
+  return (
+    <button
+      onClick={onCopy}
+      title={copied ? "copied" : `copy ${address}`}
+      className="hidden items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 transition-colors hover:border-accent/60 hover:bg-card-hover sm:flex"
+    >
+      <span
+        className={`size-1.5 rounded-full ${copied ? "bg-accent" : "bg-success"}`}
+      />
+      <span className="tabular font-mono text-[11px] text-text-dim">
+        {copied ? "copied!" : `${address.slice(0, 6)}…${address.slice(-4)}`}
+      </span>
+    </button>
   );
 }
 
