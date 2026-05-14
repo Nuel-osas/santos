@@ -45,7 +45,7 @@ const KNOWN_UNDERLYINGS: Record<string, Underlying> = {
   SUI: { symbol: "SUI", strikeStep: 0.1, priceDecimals: 3, strikeDecimals: 3 },
 };
 
-function resolveUnderlying(symbol: string): Underlying {
+export function resolveUnderlying(symbol: string): Underlying {
   return (
     KNOWN_UNDERLYINGS[symbol] ?? {
       symbol,

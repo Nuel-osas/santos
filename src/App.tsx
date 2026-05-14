@@ -8,17 +8,17 @@ import {
 } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { TradeView } from "./pages/TradeView";
-import { PoolsView } from "./pages/PoolsView";
+import { VaultView } from "./pages/VaultView";
+import { PortfolioView } from "./pages/PortfolioView";
 import {
-  listLiveOracles,
   getOracle,
-  getVaultState,
   getUserPlpBalance,
   getUserDusdcBalance,
   type OracleSummary,
   type Oracle,
   type VaultState,
 } from "./lib/sui";
+import { getOracleList, getVaultSummary } from "./lib/predictServer";
 
 const ORACLE_REFRESH_MS = 1500;
 const VAULT_REFRESH_MS = 4000;
@@ -48,7 +48,15 @@ export default function App() {
 
     const refresh = async () => {
       try {
-        const list = await listLiveOracles();
+        // Server returns ALL oracles in one shot (~2.3k including settled
+        // history). Filter to the recently-active ones the UI cares about:
+        // anything not yet settled, plus settled-within-the-last-24h so the
+        // user can still inspect/redeem fresh history.
+        const all = await getOracleList();
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        const list = all
+          .filter((o) => o.status !== 3 || o.expiry > cutoff)
+          .sort((a, b) => a.expiry - b.expiry);
         if (cancelled) return;
         setOracles(list);
         if (isFirst) {
@@ -124,7 +132,7 @@ export default function App() {
     let cancelled = false;
     const tick = async () => {
       const [vSettled, plpSettled, dusdcSettled] = await Promise.allSettled([
-        getVaultState(),
+        getVaultSummary(),
         account ? getUserPlpBalance(account.address) : Promise.resolve(0),
         account ? getUserDusdcBalance(account.address) : Promise.resolve(0),
       ]);
@@ -174,11 +182,26 @@ export default function App() {
             }
           />
           <Route
-            path="/pools"
+            path="/vault"
             element={
-              <PoolsView vault={vault} userPlp={userPlp} userDusdc={userDusdc} />
+              <VaultView vault={vault} userPlp={userPlp} userDusdc={userDusdc} />
             }
           />
+          <Route
+            path="/portfolio"
+            element={
+              <PortfolioView
+                managerId={selectedManagerId}
+                userDusdc={userDusdc}
+                userPlp={userPlp}
+                plpNav={vault?.plpNav ?? 1}
+                positionsRefreshKey={positionsRefreshKey}
+                onMutate={() => setPositionsRefreshKey((k) => k + 1)}
+              />
+            }
+          />
+          {/* legacy /pools → /vault */}
+          <Route path="/pools" element={<Navigate to="/vault" replace />} />
           <Route path="*" element={<Navigate to="/trade" replace />} />
         </Routes>
       </AppShell>

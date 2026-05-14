@@ -3,7 +3,8 @@ import { NavLink } from "react-router-dom";
 
 const NAV = [
   { to: "/trade", label: "Trade" },
-  { to: "/pools", label: "Pools" },
+  { to: "/portfolio", label: "Portfolio" },
+  { to: "/vault", label: "Vault" },
 ];
 
 export function AppHeader() {

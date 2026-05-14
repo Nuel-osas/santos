@@ -8,12 +8,12 @@ type Props = {
   userDusdc: number;
 };
 
-export function PoolsView({ vault, userPlp, userDusdc }: Props) {
+export function VaultView({ vault, userPlp, userDusdc }: Props) {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5 px-5 py-6">
       <div className="border-b border-border pb-3">
         <p className="font-mono text-[11px] uppercase tracking-widest text-text-faint">
-          Liquidity
+          Vault · PLP
         </p>
         <h1 className="mt-1 font-mono text-lg font-medium tracking-tight text-text">
           Supply dUSDC · earn vault yield
