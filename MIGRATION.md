@@ -25,8 +25,8 @@ Ordered by leverage — top rows are the biggest simplifications.
 | `sui.ts` (current) | Predict-server endpoint (target) | Notes |
 |---|---|---|
 | `listLiveOracles()` — scans `OraclePricesUpdated` events, dedupes, then `multiGetObjects` for each | `GET /predicts/:predict_id/oracles` | One round trip vs N. Server returns `underlying_asset`, `expiry`, `min_strike`, `tick_size`, `status`. Pre-indexed lifecycle state. |
-| `getPositionHistory(managerId)` — `queryEvents` PositionRedeemed + PositionMinted, client-side join for P&L | `GET /managers/:manager_id/positions/summary` + `GET /managers/:manager_id/pnl?range=ALL` | Server already does the redeemed↔minted join and computes P&L over time windows. Deletes our cost-basis bookkeeping. |
-| `getUserPositions(managerId)` — `getDynamicFields` + `multiGetObjects` to walk the manager's positions table | `GET /managers/:manager_id/positions/summary` | Same server endpoint covers open positions too. |
+| `getPositionHistory(managerId)` — `queryEvents` PositionRedeemed + PositionMinted, client-side join for P&L | **Stay on chain** | The per-event server endpoint `/positions/redeemed` does NOT carry P&L (it mirrors the raw Move event, which only has `payout` + `bid_price` — same circular dependency). `/managers/:id/positions/summary` has P&L but collapses every redeem on the same market into one row. We want per-redeem-event P&L granularity in the UI, so the chain-event join stays. |
+| `getUserPositions(managerId)` — `getDynamicFields` + `multiGetObjects` to walk the manager's positions table | **Stay on chain** OR `GET /managers/:manager_id/positions/summary` filtered to open_qty>0 | Server can give us the open set, but if we keep `getPositionHistory` on chain we keep this for consistency. |
 | `findUserPredictManagers(owner)` — `queryEvents` Sender filter, then `getObject` per manager | `GET /managers?owner=:address` (per README §2) | Server returns the indexed manager list directly. |
 | `getVaultState()` — reads the shared `Predict` object | `GET /predicts/:predict_id/vault/summary` | Server returns vault balance, liabilities, MTM, max payout, available — server-side aggregated. |
 | `getOracle(id)` — `getObject` with content | `GET /oracles/:oracle_id/state` (snapshot) + checkpoint stream `OraclePricesUpdated` (live ticks) | Use server for initial render, stream for sub-second refresh. |
@@ -60,6 +60,8 @@ Code volume roughly halves.
 - `getManagerQuoteBalance` — TradeForm checks this immediately before submit. Server lag makes it unsafe here.
 - Pre-sign manager state if we ever do composite txs that depend on current balances.
 - Post-tx refresh of the directly affected object (manager + oracle) for confirmation latency.
+- **`getPositionHistory` (PositionsList History tab)** — server's per-event log lacks P&L; the aggregated alternative collapses multiple redeems per market into one row. Per-redeem P&L granularity is the product requirement, so the chain-event join stays.
+- **`getUserPositions` (PositionsList Open tab)** — kept on chain alongside the history join for consistency.
 
 ## Reference
 
