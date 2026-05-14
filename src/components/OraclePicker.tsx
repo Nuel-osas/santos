@@ -98,17 +98,12 @@ export function OraclePicker({
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="mb-3 flex items-baseline justify-between">
-        <div className="flex items-baseline gap-2">
-          <span className="kicker">Expiries</span>
-          <span className="font-mono text-[10px] text-text-faint">
-            · one oracle per (underlying × expiry)
-          </span>
-        </div>
-        <div className="flex gap-3 font-mono text-[10px] text-text-faint">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span className="kicker">Expiries</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-text-faint">
           {[1, 2, 3].map((s) =>
             counts[s] ? (
-              <span key={s} className="flex items-center gap-1">
+              <span key={s} className="flex items-center gap-1 whitespace-nowrap">
                 <span className={`size-1.5 rounded-full ${STATUS_DOT[s]}`} />
                 {counts[s]} {STATUS_LABEL[s]}
               </span>
