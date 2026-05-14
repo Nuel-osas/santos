@@ -271,6 +271,136 @@ export async function getManagerPnl(
   };
 }
 
+// ─── Trade tape (per-oracle mint+redeem feed) ─────────────────────────────
+
+type ServerTradeBase = {
+  type: "mint" | "redeem";
+  digest: string;
+  checkpoint_timestamp_ms: number;
+  manager_id: string;
+  trader?: string; // present on mint
+  owner?: string; // present on redeem
+  oracle_id: string;
+  expiry: number;
+  quantity: number;
+  quote_asset: string;
+};
+
+type ServerTrade =
+  | (ServerTradeBase & {
+      // binary mint
+      type: "mint";
+      strike: number;
+      is_up: boolean;
+      cost: number;
+      ask_price: number;
+    })
+  | (ServerTradeBase & {
+      // binary redeem
+      type: "redeem";
+      strike: number;
+      is_up: boolean;
+      payout: number;
+      bid_price: number;
+      is_settled: boolean;
+    })
+  | (ServerTradeBase & {
+      // range mint
+      type: "mint";
+      lower_strike: number;
+      higher_strike: number;
+      cost: number;
+      ask_price: number;
+    })
+  | (ServerTradeBase & {
+      // range redeem
+      type: "redeem";
+      lower_strike: number;
+      higher_strike: number;
+      payout: number;
+      bid_price: number;
+      is_settled: boolean;
+    });
+
+export type TradeTapeEntry = {
+  kind: "binary" | "range";
+  side: "mint" | "redeem";
+  timestampMs: number;
+  txDigest: string;
+  trader: string;
+  // Binary fields
+  strike?: number;
+  isUp?: boolean;
+  // Range fields
+  lowerStrike?: number;
+  higherStrike?: number;
+  // Common
+  quantity: number;
+  // Side-specific
+  cost?: number; // mint
+  askPrice?: number; // mint
+  payout?: number; // redeem
+  bidPrice?: number; // redeem
+  isSettled?: boolean; // redeem
+};
+
+export async function getOracleTrades(
+  oracleId: string,
+  limit: number = 50,
+  signal?: AbortSignal,
+): Promise<TradeTapeEntry[]> {
+  const raw = await get<ServerTrade[]>(
+    `/trades/${oracleId}?limit=${limit}`,
+    signal,
+  );
+  return raw.map((r) => {
+    const isRange = "lower_strike" in r;
+    const base = {
+      kind: (isRange ? "range" : "binary") as "binary" | "range",
+      side: r.type,
+      timestampMs: r.checkpoint_timestamp_ms,
+      txDigest: r.digest,
+      trader: (r as any).trader ?? (r as any).owner ?? "",
+      quantity: r.quantity / QTY_SCALE,
+    };
+    if (isRange) {
+      const rr = r as any;
+      return {
+        ...base,
+        lowerStrike: rr.lower_strike / PRICE_SCALE,
+        higherStrike: rr.higher_strike / PRICE_SCALE,
+        ...(r.type === "mint"
+          ? {
+              cost: rr.cost / QTY_SCALE,
+              askPrice: rr.ask_price / PRICE_SCALE,
+            }
+          : {
+              payout: rr.payout / QTY_SCALE,
+              bidPrice: rr.bid_price / PRICE_SCALE,
+              isSettled: rr.is_settled,
+            }),
+      };
+    } else {
+      const rr = r as any;
+      return {
+        ...base,
+        strike: rr.strike / PRICE_SCALE,
+        isUp: rr.is_up,
+        ...(r.type === "mint"
+          ? {
+              cost: rr.cost / QTY_SCALE,
+              askPrice: rr.ask_price / PRICE_SCALE,
+            }
+          : {
+              payout: rr.payout / QTY_SCALE,
+              bidPrice: rr.bid_price / PRICE_SCALE,
+              isSettled: rr.is_settled,
+            }),
+      };
+    }
+  });
+}
+
 // ─── Vault summary ────────────────────────────────────────────────────────
 
 type ServerVaultSummary = {

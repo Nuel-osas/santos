@@ -5,6 +5,7 @@ import { MarketStrip } from "../components/MarketStrip";
 import { ManagerPanel } from "../components/ManagerPanel";
 import { TradeForm } from "../components/TradeForm";
 import { PositionsList } from "../components/PositionsList";
+import { TradeTape } from "../components/TradeTape";
 import { VolSurfaceChart } from "../components/VolSurfaceChart";
 import type { Oracle, OracleSummary } from "../lib/sui";
 
@@ -26,7 +27,7 @@ type Props = {
 const PERIODS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 type Period = (typeof PERIODS)[number];
 
-type PanelTab = "svi" | "position";
+type PanelTab = "svi" | "position" | "trades";
 
 export function TradeView({
   oracles,
@@ -105,10 +106,20 @@ export function TradeView({
                   active={panelTab === "position"}
                   onClick={() => setPanelTab("position")}
                 />
+                <PanelTabButton
+                  label="Trades"
+                  active={panelTab === "trades"}
+                  onClick={() => setPanelTab("trades")}
+                />
               </div>
               {panelTab === "svi" && oracleState && (
                 <span className="font-mono text-[10px] text-text-faint">
                   block scholes oracle · T = {(T * 365).toFixed(1)}d
+                </span>
+              )}
+              {panelTab === "trades" && oracleState && (
+                <span className="font-mono text-[10px] text-text-faint">
+                  {oracleState.underlying.symbol} · live tape
                 </span>
               )}
             </div>
@@ -125,6 +136,14 @@ export function TradeView({
                 ) : (
                   <div className="py-8 text-center font-mono text-[11px] text-text-faint">
                     waiting on oracle state…
+                  </div>
+                )
+              ) : panelTab === "trades" ? (
+                selectedOracleId ? (
+                  <TradeTape oracleId={selectedOracleId} />
+                ) : (
+                  <div className="py-8 text-center font-mono text-[11px] text-text-faint">
+                    pick a market to see its trade tape
                   </div>
                 )
               ) : (
