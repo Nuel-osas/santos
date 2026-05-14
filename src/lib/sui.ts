@@ -373,6 +373,109 @@ export async function getUserPositions(managerId: string): Promise<Position[]> {
   return out.sort((a, b) => a.expiry - b.expiry);
 }
 
+export type PositionHistoryEntry = {
+  txDigest: string;
+  timestampMs: number;
+  oracleId: string;
+  expiry: number;
+  strike: number;
+  isUp: boolean;
+  quantity: number;
+  payout: number;
+  bidPrice: number; // payout / qty, in (0,1)
+  isSettled: boolean;
+  // P&L joined from PositionMinted events. null when no matching mint is in
+  // the queried window (e.g. older than `limit` mints back).
+  entryAskPrice: number | null;
+  pnl: number | null; // payout − qty × entryAskPrice
+};
+
+type MintFacts = { totalCost: number; totalQty: number };
+
+/// Query PositionRedeemed + PositionMinted events for this manager and join
+/// them by (oracle_id, strike, is_up) to compute realized P&L per redeem.
+/// Cost basis uses the volume-weighted average ask across all mints of the
+/// same position key.
+export async function getPositionHistory(
+  managerId: string,
+  limit: number = 200,
+): Promise<PositionHistoryEntry[]> {
+  const [redeemEvents, mintEvents] = await Promise.all([
+    client.queryEvents({
+      query: { MoveEventType: `${PREDICT_PKG}::predict::PositionRedeemed` },
+      limit,
+      order: "descending",
+    }),
+    client.queryEvents({
+      query: { MoveEventType: `${PREDICT_PKG}::predict::PositionMinted` },
+      limit,
+      order: "descending",
+    }),
+  ]);
+
+  // Build a cost-basis map keyed by (oracle_id, strike, is_up). For each key
+  // we accumulate total cost paid and total qty minted; ask = cost/qty.
+  const costBasis = new Map<string, MintFacts>();
+  for (const e of mintEvents.data) {
+    const j = e.parsedJson as {
+      manager_id: string;
+      oracle_id: string;
+      strike: string;
+      is_up: boolean;
+      quantity: string;
+      cost: string;
+    };
+    if (!j || j.manager_id !== managerId) continue;
+    const key = `${j.oracle_id}:${j.strike}:${j.is_up}`;
+    const cost = Number(BigInt(j.cost)) / 1e6;
+    const qty = Number(BigInt(j.quantity)) / 1e6;
+    const prev = costBasis.get(key) ?? { totalCost: 0, totalQty: 0 };
+    costBasis.set(key, {
+      totalCost: prev.totalCost + cost,
+      totalQty: prev.totalQty + qty,
+    });
+  }
+
+  const out: PositionHistoryEntry[] = [];
+  for (const e of redeemEvents.data) {
+    const j = e.parsedJson as {
+      manager_id: string;
+      oracle_id: string;
+      expiry: string;
+      strike: string;
+      is_up: boolean;
+      quantity: string;
+      payout: string;
+      bid_price: string;
+      is_settled: boolean;
+    };
+    if (!j || j.manager_id !== managerId) continue;
+    const quantity = Number(BigInt(j.quantity)) / 1e6;
+    const payout = Number(BigInt(j.payout)) / 1e6;
+    const key = `${j.oracle_id}:${j.strike}:${j.is_up}`;
+    const facts = costBasis.get(key);
+    const entryAskPrice =
+      facts && facts.totalQty > 0 ? facts.totalCost / facts.totalQty : null;
+    const pnl =
+      entryAskPrice != null ? payout - quantity * entryAskPrice : null;
+    out.push({
+      txDigest: e.id.txDigest,
+      timestampMs: Number(e.timestampMs ?? 0),
+      oracleId: j.oracle_id,
+      expiry: Number(j.expiry),
+      strike: Number(BigInt(j.strike)) / 1e9,
+      isUp: j.is_up,
+      quantity,
+      payout,
+      bidPrice: Number(BigInt(j.bid_price)) / 1e9,
+      isSettled: j.is_settled,
+      entryAskPrice,
+      pnl,
+    });
+  }
+  return out;
+}
+
 export async function findUserPredictManagers(
   owner: string,
 ): Promise<ManagerSummary[]> {
