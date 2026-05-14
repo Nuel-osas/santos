@@ -73,6 +73,51 @@ export async function getOracleList(
   return raw.map(mapOracle);
 }
 
+// ─── Manager discovery (list + by-owner) ──────────────────────────────────
+
+type ServerManagerEntry = {
+  manager_id: string;
+  owner: string;
+  checkpoint_timestamp_ms: number;
+  digest: string;
+};
+
+export type ManagerListEntry = {
+  managerId: string;
+  owner: string;
+  createdAtMs: number;
+  createTxDigest: string;
+};
+
+function mapManagerEntry(e: ServerManagerEntry): ManagerListEntry {
+  return {
+    managerId: e.manager_id,
+    owner: e.owner,
+    createdAtMs: e.checkpoint_timestamp_ms,
+    createTxDigest: e.digest,
+  };
+}
+
+/// All PredictManagers created on this predict. Newest first.
+export async function getAllManagers(
+  signal?: AbortSignal,
+): Promise<ManagerListEntry[]> {
+  const raw = await get<ServerManagerEntry[]>(`/managers`, signal);
+  return raw.map(mapManagerEntry);
+}
+
+/// All PredictManagers owned by a specific wallet. Newest first.
+export async function getManagersByOwner(
+  owner: string,
+  signal?: AbortSignal,
+): Promise<ManagerListEntry[]> {
+  const raw = await get<ServerManagerEntry[]>(
+    `/managers?owner=${encodeURIComponent(owner)}`,
+    signal,
+  );
+  return raw.map(mapManagerEntry);
+}
+
 // ─── Manager (positions + PnL) ────────────────────────────────────────────
 
 type ServerManagerSummary = {

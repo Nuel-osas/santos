@@ -10,6 +10,7 @@ import { AppShell } from "./components/AppShell";
 import { TradeView } from "./pages/TradeView";
 import { VaultView } from "./pages/VaultView";
 import { PortfolioView } from "./pages/PortfolioView";
+import { LeaderboardView } from "./pages/LeaderboardView";
 import {
   getOracle,
   getUserPlpBalance,
@@ -237,6 +238,7 @@ export default function App() {
               />
             }
           />
+          <Route path="/leaderboard" element={<LeaderboardView />} />
           {/* legacy /pools → /vault */}
           <Route path="/pools" element={<Navigate to="/vault" replace />} />
           <Route path="*" element={<Navigate to="/trade" replace />} />
