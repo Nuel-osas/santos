@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
@@ -31,15 +31,41 @@ export function PositionsList({
   const [tab, setTab] = useState<Tab>("open");
   const [positions, setPositions] = useState<Position[]>([]);
   const [history, setHistory] = useState<PositionHistoryEntry[]>([]);
-  const [loadingOpen, setLoadingOpen] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  // Initialize to true if a manager is present so the auto-tab effect can
+  // tell "haven't loaded yet" apart from "loaded and empty".
+  const [loadingOpen, setLoadingOpen] = useState(!!managerId);
+  const [loadingHistory, setLoadingHistory] = useState(!!managerId);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  // Auto-default tab once per manager: if there are 0 open positions but
+  // history exists, land on History. Tracked by ref so it only fires once
+  // and never overrides the user after they've picked a tab manually.
+  const didAutoTab = useRef(false);
+  useEffect(() => {
+    didAutoTab.current = false;
+    setTab("open");
+    // Force loading flags true so the auto-tab effect waits for THIS
+    // manager's fetches to finish, not whatever state was left over.
+    if (managerId) {
+      setLoadingOpen(true);
+      setLoadingHistory(true);
+    }
+  }, [managerId]);
+  useEffect(() => {
+    if (didAutoTab.current) return;
+    if (loadingOpen || loadingHistory) return;
+    didAutoTab.current = true;
+    if (positions.length === 0 && history.length > 0) {
+      setTab("history");
+    }
+  }, [loadingOpen, loadingHistory, positions.length, history.length]);
 
   // Open positions — fetched whenever manager or refreshKey changes.
   useEffect(() => {
     if (!managerId) {
       setPositions([]);
+      setLoadingOpen(false);
       return;
     }
     let cancelled = false;
@@ -63,6 +89,7 @@ export function PositionsList({
   useEffect(() => {
     if (!managerId) {
       setHistory([]);
+      setLoadingHistory(false);
       return;
     }
     let cancelled = false;
