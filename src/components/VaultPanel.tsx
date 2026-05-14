@@ -22,39 +22,36 @@ export function VaultPanel({
 
   return (
     <div className="rounded-xl border border-border bg-card p-5">
-      <div className="mb-4 flex items-baseline justify-between">
-        <div>
-          <div className="kicker mb-1">Vault · PLP</div>
+      {/* Hero: label-above-number, no inline tail label */}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="kicker mb-1">Vault value</div>
           <div className="font-mono text-2xl text-text tabular-nums">
             ${vault.vaultValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            <span className="ml-2 text-xs text-text-faint">vault value</span>
           </div>
         </div>
         <div className="text-right">
-          <div className="font-mono text-[11px] text-text-dim">
-            NAV{" "}
-            <span className="text-text">
-              ${vault.plpNav.toFixed(4)}
-            </span>{" "}
-            / PLP
+          <div className="font-mono text-[11px] text-text-dim whitespace-nowrap">
+            NAV <span className="text-text">${vault.plpNav.toFixed(4)}</span> / PLP
           </div>
-          <div className="font-mono text-[10px] text-text-faint">
+          <div className="font-mono text-[10px] text-text-faint whitespace-nowrap">
             {vault.plpTotalSupply.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
-            PLP outstanding
+            PLP out
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* Stats — keep at 2-col so labels never wrap in half-page panel */}
+      <div className="grid grid-cols-2 gap-3">
         <Stat
           label="Balance"
           value={`$${vault.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
           hint="quote in vault"
         />
         <Stat
-          label="Mark-to-Market"
+          label="MTM"
           value={`$${vault.totalMtm.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-          hint={`${utilization.toFixed(1)}% utilization`}
+          hint={`${utilization.toFixed(1)}% util`}
         />
         <Stat
           label="Max payout"
@@ -63,7 +60,7 @@ export function VaultPanel({
           tone="warn"
         />
         <Stat
-          label="LP withdrawable"
+          label="LP free"
           value={`$${vault.available.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
           hint="balance − max_payout"
           tone="ok"
@@ -107,18 +104,18 @@ function Stat({
     tone === "ok"
       ? "text-success"
       : tone === "warn"
-        ? "text-hot"
+        ? "text-warn"
         : "text-text";
   return (
     <div className="rounded-lg bg-bg-soft p-3">
-      <div className="text-[10px] uppercase tracking-widest text-text-faint">
+      <div className="text-[10px] uppercase tracking-wider text-text-faint whitespace-nowrap">
         {label}
       </div>
       <div className={`mt-1 font-mono text-sm tabular-nums ${valueColor}`}>
         {value}
       </div>
       {hint && (
-        <div className="mt-0.5 font-mono text-[10px] text-text-faint">
+        <div className="mt-0.5 font-mono text-[10px] text-text-faint whitespace-nowrap">
           {hint}
         </div>
       )}
