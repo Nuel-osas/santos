@@ -373,6 +373,53 @@ export async function getUserPositions(managerId: string): Promise<Position[]> {
   return out.sort((a, b) => a.expiry - b.expiry);
 }
 
+export type RangePosition = {
+  oracleId: string;
+  expiry: number;
+  lowerStrike: number;
+  higherStrike: number;
+  quantity: number;
+};
+
+/// Walk the `range_positions` Table on the manager. Same shape as
+/// getUserPositions but with two strikes and no direction.
+export async function getUserRangePositions(
+  managerId: string,
+): Promise<RangePosition[]> {
+  const mgr = await client.getObject({
+    id: managerId,
+    options: { showContent: true },
+  });
+  const tableId = (mgr.data?.content as any)?.fields?.range_positions?.fields?.id
+    ?.id;
+  if (!tableId) return [];
+
+  const dfs = await client.getDynamicFields({ parentId: tableId });
+  if (dfs.data.length === 0) return [];
+
+  const fields = await client.multiGetObjects({
+    ids: dfs.data.map((d) => d.objectId),
+    options: { showContent: true },
+  });
+
+  const out: RangePosition[] = [];
+  for (const f of fields) {
+    const c = (f.data?.content as any)?.fields;
+    const key = c?.name?.fields;
+    const qty = c?.value;
+    if (!key || qty == null) continue;
+    if (BigInt(qty) === 0n) continue; // ghost entry
+    out.push({
+      oracleId: key.oracle_id,
+      expiry: Number(key.expiry),
+      lowerStrike: Number(BigInt(key.lower_strike)) / 1e9,
+      higherStrike: Number(BigInt(key.higher_strike)) / 1e9,
+      quantity: Number(BigInt(qty)) / 1e6,
+    });
+  }
+  return out.sort((a, b) => a.expiry - b.expiry);
+}
+
 export type PositionHistoryEntry = {
   txDigest: string;
   timestampMs: number;

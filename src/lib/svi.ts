@@ -103,3 +103,20 @@ export function binaryFairPrice(
   const probUp = normCdf(d2);
   return isUp ? probUp : 1 - probUp;
 }
+
+// Vertical range fair price: pays $1 if S_T ∈ (L, H] at expiry, else $0.
+// Equals P(S_T > L) − P(S_T > H) = binaryFairPrice(F, L, T, svi, up=true)
+// − binaryFairPrice(F, H, T, svi, up=true). Each leg uses sigma at its own
+// strike from the smile (so the formula respects skew, not a flat IV).
+export function rangeFairPrice(
+  forward: number,
+  lowerStrike: number,
+  higherStrike: number,
+  T: number,
+  svi: SviParams,
+): number {
+  if (lowerStrike >= higherStrike) return 0;
+  const lower = binaryFairPrice(forward, lowerStrike, T, svi, true);
+  const upper = binaryFairPrice(forward, higherStrike, T, svi, true);
+  return Math.max(0, lower - upper);
+}

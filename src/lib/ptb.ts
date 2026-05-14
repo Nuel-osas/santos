@@ -133,6 +133,81 @@ export function buildWithdraw(opts: {
   return tx;
 }
 
+/// Build a PTB that mints a vertical range position on a market. Pays $1 per
+/// unit if the expiry price lands in (lower_strike, higher_strike], else $0.
+/// RangeKey carries no direction — bull-call and bear-put spreads with the
+/// same strikes price identically.
+export function buildMintRange(opts: {
+  managerId: string;
+  oracleId: string;
+  expiry: bigint;
+  lowerStrike: bigint;
+  higherStrike: bigint;
+  quantity: bigint;
+  quoteAssetType: string;
+}): Transaction {
+  const tx = new Transaction();
+  const rangeKey = tx.moveCall({
+    target: `${PREDICT_PKG}::range_key::new`,
+    arguments: [
+      tx.pure.id(opts.oracleId),
+      tx.pure.u64(opts.expiry),
+      tx.pure.u64(opts.lowerStrike),
+      tx.pure.u64(opts.higherStrike),
+    ],
+  });
+  tx.moveCall({
+    target: `${PREDICT_PKG}::predict::mint_range`,
+    typeArguments: [opts.quoteAssetType],
+    arguments: [
+      tx.object(PREDICT_OBJ),
+      tx.object(opts.managerId),
+      tx.object(opts.oracleId),
+      rangeKey,
+      tx.pure.u64(opts.quantity),
+      tx.object("0x6"),
+    ],
+  });
+  return tx;
+}
+
+/// Build a PTB that redeems an existing range position back into the manager.
+/// Dual-mode like buildRedeemBinary — sells back at the live bid pre-expiry,
+/// claims the settled payout post-settlement. Contract picks the branch.
+export function buildRedeemRange(opts: {
+  managerId: string;
+  oracleId: string;
+  expiry: bigint;
+  lowerStrike: bigint;
+  higherStrike: bigint;
+  quantity: bigint;
+  quoteAssetType: string;
+}): Transaction {
+  const tx = new Transaction();
+  const rangeKey = tx.moveCall({
+    target: `${PREDICT_PKG}::range_key::new`,
+    arguments: [
+      tx.pure.id(opts.oracleId),
+      tx.pure.u64(opts.expiry),
+      tx.pure.u64(opts.lowerStrike),
+      tx.pure.u64(opts.higherStrike),
+    ],
+  });
+  tx.moveCall({
+    target: `${PREDICT_PKG}::predict::redeem_range`,
+    typeArguments: [opts.quoteAssetType],
+    arguments: [
+      tx.object(PREDICT_OBJ),
+      tx.object(opts.managerId),
+      tx.object(opts.oracleId),
+      rangeKey,
+      tx.pure.u64(opts.quantity),
+      tx.object("0x6"),
+    ],
+  });
+  return tx;
+}
+
 /// Build a PTB that redeems an existing binary position back into the manager.
 export function buildRedeemBinary(opts: {
   managerId: string;
