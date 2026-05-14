@@ -27,10 +27,12 @@ export function PositionsList({
   managerId,
   refreshKey,
   onMutate,
+  readOnly = false,
 }: {
   managerId: string | null;
   refreshKey: number;
   onMutate: () => void;
+  readOnly?: boolean;
 }) {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
@@ -136,7 +138,9 @@ export function PositionsList({
     };
   }, [managerId, refreshKey]);
 
-  if (!account || !managerId) return null;
+  // When read-only we don't need a connected account — let visitors view.
+  if (!managerId) return null;
+  if (!readOnly && !account) return null;
 
   const handleRedeem = (p: Position) => {
     setError(null);
@@ -233,6 +237,7 @@ export function PositionsList({
           isPending={isPending}
           onRedeem={handleRedeem}
           onRedeemRange={handleRedeemRange}
+          readOnly={readOnly}
         />
       ) : (
         <HistoryList history={history} loading={loadingHistory} />
@@ -255,6 +260,7 @@ function OpenList({
   isPending,
   onRedeem,
   onRedeemRange,
+  readOnly,
 }: {
   positions: Position[];
   ranges: RangePosition[];
@@ -263,6 +269,7 @@ function OpenList({
   isPending: boolean;
   onRedeem: (p: Position) => void;
   onRedeemRange: (r: RangePosition) => void;
+  readOnly: boolean;
 }) {
   if (loading && positions.length === 0 && ranges.length === 0) {
     return <div className="font-mono text-xs text-text-faint">loading…</div>;
@@ -316,18 +323,22 @@ function OpenList({
                       : `${Math.round(minutesToExpiry / 60 / 24)}d left`}
               </div>
             </div>
-            <button
-              onClick={() => onRedeem(p)}
-              disabled={busy}
-              title={
-                expired
-                  ? "Claim settled payout once oracle settles"
-                  : "Sell position back at the current live bid (early exit)"
-              }
-              className="rounded-md border border-border bg-bg px-3 py-1.5 font-mono text-[11px] text-text-dim transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy ? (expired ? "redeeming…" : "closing…") : expired ? "redeem" : "close"}
-            </button>
+            {readOnly ? (
+              <span className="font-mono text-[10px] text-text-faint">view only</span>
+            ) : (
+              <button
+                onClick={() => onRedeem(p)}
+                disabled={busy}
+                title={
+                  expired
+                    ? "Claim settled payout once oracle settles"
+                    : "Sell position back at the current live bid (early exit)"
+                }
+                className="rounded-md border border-border bg-bg px-3 py-1.5 font-mono text-[11px] text-text-dim transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy ? (expired ? "redeeming…" : "closing…") : expired ? "redeem" : "close"}
+              </button>
+            )}
           </div>
         );
       })}
@@ -370,18 +381,22 @@ function OpenList({
                       : `${Math.round(minutesToExpiry / 60 / 24)}d left`}
               </div>
             </div>
-            <button
-              onClick={() => onRedeemRange(r)}
-              disabled={busy}
-              title={
-                expired
-                  ? "Claim settled payout once oracle settles"
-                  : "Sell range back at the current live bid (early exit)"
-              }
-              className="rounded-md border border-border bg-bg px-3 py-1.5 font-mono text-[11px] text-text-dim transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy ? (expired ? "redeeming…" : "closing…") : expired ? "redeem" : "close"}
-            </button>
+            {readOnly ? (
+              <span className="font-mono text-[10px] text-text-faint">view only</span>
+            ) : (
+              <button
+                onClick={() => onRedeemRange(r)}
+                disabled={busy}
+                title={
+                  expired
+                    ? "Claim settled payout once oracle settles"
+                    : "Sell range back at the current live bid (early exit)"
+                }
+                className="rounded-md border border-border bg-bg px-3 py-1.5 font-mono text-[11px] text-text-dim transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy ? (expired ? "redeeming…" : "closing…") : expired ? "redeem" : "close"}
+              </button>
+            )}
           </div>
         );
       })}

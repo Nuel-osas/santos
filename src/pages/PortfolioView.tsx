@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 import { PositionsList } from "../components/PositionsList";
 import { PnlChart } from "../components/PnlChart";
 import {
   getManagerSummary,
   getManagerPnl,
+  getManagersByOwner,
   type ManagerSummary,
   type PnlSeries,
   type PnlRange,
 } from "../lib/predictServer";
 
 const POLL_MS = 8000;
-
 const RANGES: PnlRange[] = ["1D", "1W", "1M", "3M", "ALL"];
 
 type Props = {
@@ -23,8 +24,12 @@ type Props = {
   onMutate: () => void;
 };
 
+function isLikelySuiAddress(s: string): boolean {
+  return /^0x[0-9a-fA-F]{1,64}$/.test(s.trim());
+}
+
 export function PortfolioView({
-  managerId,
+  managerId: ownManagerId,
   userDusdc,
   userPlp,
   plpNav,
@@ -32,24 +37,96 @@ export function PortfolioView({
   onMutate,
 }: Props) {
   const account = useCurrentAccount();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryManager = searchParams.get("manager");
+  const queryWallet = searchParams.get("wallet");
+
+  // Resolve which manager we're actually viewing.
+  // Precedence: ?manager= > resolved ?wallet= > own selected manager.
+  const [resolvedFromWallet, setResolvedFromWallet] = useState<string | null>(
+    null,
+  );
+  const [walletResolveError, setWalletResolveError] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!queryWallet) {
+      setResolvedFromWallet(null);
+      setWalletResolveError(null);
+      return;
+    }
+    let cancelled = false;
+    setWalletResolveError(null);
+    getManagersByOwner(queryWallet)
+      .then((list) => {
+        if (cancelled) return;
+        if (list.length === 0) {
+          setResolvedFromWallet(null);
+          setWalletResolveError(
+            "No PredictManager found for that wallet address.",
+          );
+        } else {
+          // Most recently created first (server already returns desc).
+          setResolvedFromWallet(list[0].managerId);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled)
+          setWalletResolveError(e.message ?? "wallet lookup failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [queryWallet]);
+
+  const effectiveManagerId =
+    queryManager ?? resolvedFromWallet ?? ownManagerId;
+
+  const isViewingOther =
+    effectiveManagerId != null && effectiveManagerId !== ownManagerId;
+
+  // Search bar state
+  const [searchInput, setSearchInput] = useState("");
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = searchInput.trim();
+    if (!trimmed) {
+      // Clear
+      setSearchParams({});
+      setSearchInput("");
+      return;
+    }
+    if (!isLikelySuiAddress(trimmed)) {
+      setWalletResolveError("Doesn't look like a Sui address (expect 0x + hex).");
+      return;
+    }
+    setSearchParams({ wallet: trimmed });
+  };
+  const handleClear = () => {
+    setSearchParams({});
+    setSearchInput("");
+    setWalletResolveError(null);
+  };
+
+  // ── Data fetching (driven by effectiveManagerId) ──
   const [summary, setSummary] = useState<ManagerSummary | null>(null);
   const [pnl, setPnl] = useState<PnlSeries | null>(null);
   const [pnlRange, setPnlRange] = useState<PnlRange>("ALL");
   const [pnlLoading, setPnlLoading] = useState(false);
 
-  // Manager summary — poll while page is open (server lag is fine here).
   useEffect(() => {
-    if (!managerId) {
+    if (!effectiveManagerId) {
       setSummary(null);
       return;
     }
     let cancelled = false;
     const tick = async () => {
       try {
-        const s = await getManagerSummary(managerId);
+        const s = await getManagerSummary(effectiveManagerId);
         if (!cancelled) setSummary(s);
       } catch {
-        /* ignore — keep last */
+        /* ignore */
       }
     };
     tick();
@@ -58,17 +135,16 @@ export function PortfolioView({
       cancelled = true;
       clearInterval(id);
     };
-  }, [managerId, positionsRefreshKey]);
+  }, [effectiveManagerId, positionsRefreshKey]);
 
-  // P&L time series — refetched on manager / range / refresh.
   useEffect(() => {
-    if (!managerId) {
+    if (!effectiveManagerId) {
       setPnl(null);
       return;
     }
     let cancelled = false;
     setPnlLoading(true);
-    getManagerPnl(managerId, pnlRange)
+    getManagerPnl(effectiveManagerId, pnlRange)
       .then((p) => {
         if (!cancelled) setPnl(p);
       })
@@ -81,17 +157,23 @@ export function PortfolioView({
     return () => {
       cancelled = true;
     };
-  }, [managerId, pnlRange, positionsRefreshKey]);
+  }, [effectiveManagerId, pnlRange, positionsRefreshKey]);
 
-  if (!account) {
+  if (!account && !queryWallet && !queryManager) {
     return (
       <div className="mx-auto max-w-5xl px-5 py-12 text-center">
         <p className="font-mono text-[11px] uppercase tracking-widest text-text-faint">
           Portfolio
         </p>
         <p className="mt-3 font-mono text-sm text-text-dim">
-          Connect a wallet to see your manager, positions, and history.
+          Connect a wallet or search for any address below.
         </p>
+        <SearchBar
+          input={searchInput}
+          setInput={setSearchInput}
+          onSubmit={handleSearchSubmit}
+          error={walletResolveError}
+        />
       </div>
     );
   }
@@ -111,28 +193,70 @@ export function PortfolioView({
       <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border pb-3">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-widest text-text-faint">
-            Portfolio
+            Portfolio {isViewingOther && "(read-only)"}
           </p>
           <h1 className="mt-1 font-mono text-lg font-medium tracking-tight text-text">
-            Your manager · positions · history
+            {isViewingOther
+              ? "Viewing another manager"
+              : "Your manager · positions · history"}
           </h1>
         </div>
-        {managerId ? (
+        {effectiveManagerId ? (
           <a
-            href={`https://suiscan.xyz/testnet/object/${managerId}`}
+            href={`https://suiscan.xyz/testnet/object/${effectiveManagerId}`}
             target="_blank"
             rel="noreferrer"
             className="font-mono text-[10px] text-text-faint hover:text-text underline-offset-2 hover:underline"
-            title={managerId}
+            title={effectiveManagerId}
           >
-            manager · {managerId.slice(0, 10)}…{managerId.slice(-6)}
+            manager · {effectiveManagerId.slice(0, 10)}…
+            {effectiveManagerId.slice(-6)}
           </a>
         ) : (
           <span className="font-mono text-[10px] text-text-faint">
-            no manager yet — create one from the Trade page
+            no manager
           </span>
         )}
       </div>
+
+      {/* Search bar */}
+      <SearchBar
+        input={searchInput}
+        setInput={setSearchInput}
+        onSubmit={handleSearchSubmit}
+        error={walletResolveError}
+      />
+
+      {/* "Viewing other" banner */}
+      {isViewingOther && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-accent/30 bg-accent-soft px-4 py-2">
+          <div className="min-w-0 font-mono text-[11px] text-text">
+            <span className="text-text-faint">viewing</span>{" "}
+            {queryWallet ? (
+              <>
+                <span className="text-accent">
+                  {queryWallet.slice(0, 10)}…{queryWallet.slice(-6)}
+                </span>
+                <span className="text-text-faint"> · resolved to manager </span>
+                <span className="tabular">
+                  {effectiveManagerId?.slice(0, 8)}…
+                </span>
+              </>
+            ) : (
+              <span className="text-accent tabular">
+                manager {effectiveManagerId?.slice(0, 10)}…
+                {effectiveManagerId?.slice(-6)}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={handleClear}
+            className="rounded-md border border-border bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-text-dim hover:border-accent hover:text-text"
+          >
+            back to my wallet
+          </button>
+        </div>
+      )}
 
       {/* Stat strip — server-aggregated */}
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-4">
@@ -144,9 +268,15 @@ export function PortfolioView({
           hint="server-indexed"
         />
         <Stat
-          label="Wallet dUSDC"
-          value={`$${userDusdc.toFixed(2)}`}
-          hint="available to deposit"
+          label={isViewingOther ? "Owner" : "Wallet dUSDC"}
+          value={
+            isViewingOther
+              ? summary
+                ? `${summary.owner.slice(0, 6)}…${summary.owner.slice(-4)}`
+                : "—"
+              : `$${userDusdc.toFixed(2)}`
+          }
+          hint={isViewingOther ? "address" : "available to deposit"}
         />
         <Stat
           label="Open exposure"
@@ -214,8 +344,8 @@ export function PortfolioView({
         </div>
       </div>
 
-      {/* PLP holdings — only when user has supplied */}
-      {userPlp > 0 && (
+      {/* PLP holdings — only when viewing OWN portfolio and user has supplied */}
+      {!isViewingOther && userPlp > 0 && (
         <div className="flex items-center justify-between rounded-xl border border-border bg-card px-5 py-4">
           <div>
             <div className="kicker mb-1">PLP holdings</div>
@@ -235,13 +365,53 @@ export function PortfolioView({
         </div>
       )}
 
-      {/* Positions + history */}
+      {/* Positions + history (viewing-other gets the same component but read-only) */}
       <PositionsList
-        managerId={managerId}
+        managerId={effectiveManagerId}
         refreshKey={positionsRefreshKey}
         onMutate={onMutate}
+        readOnly={isViewingOther}
       />
     </div>
+  );
+}
+
+function SearchBar({
+  input,
+  setInput,
+  onSubmit,
+  error,
+}: {
+  input: string;
+  setInput: (s: string) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  error: string | null;
+}) {
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="flex flex-col gap-1.5 rounded-xl border border-border bg-card px-4 py-3"
+    >
+      <div className="flex items-center gap-2">
+        <span className="kicker shrink-0">Search wallet</span>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="0x… paste a wallet address to view that portfolio"
+          className="flex-1 rounded-md border border-border bg-bg-soft px-3 py-1.5 font-mono text-xs text-text placeholder:text-text-faint focus:border-accent"
+        />
+        <button
+          type="submit"
+          className="rounded-md border border-accent/40 bg-accent-soft px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-accent hover:border-accent hover:bg-accent/15"
+        >
+          View
+        </button>
+      </div>
+      {error && (
+        <div className="font-mono text-[10px] text-danger">{error}</div>
+      )}
+    </form>
   );
 }
 
