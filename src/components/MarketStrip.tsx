@@ -192,22 +192,36 @@ function ExpiryPill({
   const isSoon = status === 1 && minutesToExpiry < 30 && minutesToExpiry >= 0;
   const disabled = status === 3;
 
+  // Brightness tiering: active = full color, pending = warn-toned, settled =
+  // muted. Selected overrides with the accent treatment.
   const baseClass = selected
     ? "border-accent bg-accent-soft text-text"
-    : "border-border bg-card text-text-dim hover:border-accent/60 hover:text-text";
+    : status === 1
+      ? "border-border bg-card text-text hover:border-accent/60 hover:bg-card-hover"
+      : status === 2
+        ? "border-warn/30 bg-card text-warn/90 hover:border-warn/60"
+        : "border-border/40 bg-bg/40 text-text-faint opacity-60"; // settled
 
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       title={`oracle ${oracle.id}`}
-      className={`flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 font-mono text-[11px] transition disabled:cursor-not-allowed disabled:opacity-50 ${baseClass}`}
+      className={`flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 font-mono text-[11px] transition disabled:cursor-not-allowed ${baseClass}`}
     >
-      <span className={`size-1.5 rounded-full ${STATUS_DOT[status]}`} />
-      <span className="uppercase tracking-wider">{dateStr}</span>
-      <span className="text-text-faint">{timeStr}</span>
       <span
-        className={`text-[10px] ${isSoon ? "text-warn" : "text-text-faint"}`}
+        className={`size-1.5 rounded-full ${STATUS_DOT[status]} ${status === 3 ? "opacity-50" : ""}`}
+      />
+      <span className="uppercase tracking-wider">{dateStr}</span>
+      <span
+        className={status === 1 ? "text-text-dim" : "text-text-faint"}
+      >
+        {timeStr}
+      </span>
+      <span
+        className={`text-[10px] ${
+          isSoon ? "text-warn" : status === 1 ? "text-text-dim" : "text-text-faint"
+        }`}
       >
         · {countdown}
       </span>
