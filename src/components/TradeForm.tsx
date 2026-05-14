@@ -1,12 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
   useSuiClient,
 } from "@mysten/dapp-kit";
 import type { Oracle } from "../lib/sui";
-import { DUSDC_TYPE } from "../lib/sui";
+import { DUSDC_TYPE, getManagerQuoteBalance } from "../lib/sui";
 import { buildMintBinary } from "../lib/ptb";
+import { binaryFairPrice } from "../lib/svi";
+
+// On-chain check: ask price must be in (0.05, 0.95). We use slightly tighter
+// bounds client-side so a noisy fair-price calc doesn't push past the gate.
+const FAIR_PRICE_MIN = 0.07;
+const FAIR_PRICE_MAX = 0.93;
+
+// Manager dUSDC must cover the ask + a buffer for spread + util adjustments
+// the contract adds on top of fair. Empirically 15% covers it on testnet.
+const MANAGER_BALANCE_BUFFER = 1.15;
+
+const MANAGER_BAL_REFRESH_MS = 4000;
 
 export function TradeForm({
   oracle,
@@ -19,7 +31,6 @@ export function TradeForm({
   const suiClient = useSuiClient();
   const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
 
-  // Default strike near spot, snapped to the underlying's strike step.
   const step = oracle.underlying.strikeStep;
   const defaultStrike = Math.round(oracle.spot / step) * step;
   const [strikeUsd, setStrikeUsd] = useState<number>(defaultStrike);
@@ -28,20 +39,81 @@ export function TradeForm({
   const [error, setError] = useState<string | null>(null);
   const [lastDigest, setLastDigest] = useState<string | null>(null);
 
+  // Manager dUSDC — poll while form is open so we know if the user funds mid-flow.
+  const [managerDusdc, setManagerDusdc] = useState<number | null>(null);
+  useEffect(() => {
+    if (!managerId) {
+      setManagerDusdc(null);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const bal = await getManagerQuoteBalance(managerId, DUSDC_TYPE);
+        if (!cancelled) setManagerDusdc(bal);
+      } catch {
+        // ignore — keep last value
+      }
+    };
+    tick();
+    const id = setInterval(tick, MANAGER_BAL_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [managerId]);
+
+  // Time to expiry in years (Black-Scholes T).
+  const T = Math.max(
+    (oracle.expiry - Date.now()) / (1000 * 60 * 60 * 24 * 365.25),
+    1 / (365.25 * 1440), // floor at ~1 minute to avoid div-by-zero
+  );
+
+  // Fair price using SVI smile vol at this strike.
+  const fairPrice = binaryFairPrice(
+    oracle.forward,
+    strikeUsd,
+    T,
+    oracle.svi,
+    direction === "up",
+  );
+
+  const qty = parseFloat(qtyUsd);
+  const qtyValid = !isNaN(qty) && qty > 0;
+  const estimatedCost = qtyValid ? qty * fairPrice : 0;
+  const moneyness = (strikeUsd - oracle.spot) / oracle.spot;
+
+  // Validation gates — each gives a specific reason the button is disabled.
+  const reasons: string[] = [];
+  if (!account) reasons.push("Connect wallet");
+  if (!managerId) reasons.push("Create a PredictManager first");
+  if (!qtyValid) reasons.push("Quantity must be > 0");
+  if (strikeUsd <= 0) reasons.push("Strike must be > 0");
+  if (managerId && managerDusdc != null && managerDusdc === 0)
+    reasons.push("Manager has no dUSDC — fund it first");
+  if (
+    managerId &&
+    managerDusdc != null &&
+    managerDusdc > 0 &&
+    qtyValid &&
+    managerDusdc < estimatedCost * MANAGER_BALANCE_BUFFER
+  )
+    reasons.push(
+      `Insufficient manager dUSDC — need ~$${(estimatedCost * MANAGER_BALANCE_BUFFER).toFixed(2)}, have $${managerDusdc.toFixed(2)}`,
+    );
+  if (fairPrice < FAIR_PRICE_MIN || fairPrice > FAIR_PRICE_MAX)
+    reasons.push(
+      `Strike too far from spot — fair price ${(fairPrice * 100).toFixed(1)}¢ is outside ${(FAIR_PRICE_MIN * 100).toFixed(0)}–${(FAIR_PRICE_MAX * 100).toFixed(0)}¢ band`,
+    );
+
+  const blocked = reasons.length > 0;
+  const disabled = blocked || isPending;
+
   const handleSubmit = () => {
+    if (blocked || !managerId) return;
     setError(null);
     setLastDigest(null);
-    if (!managerId) {
-      setError("Create a PredictManager first.");
-      return;
-    }
-    const qty = parseFloat(qtyUsd);
-    if (isNaN(qty) || qty <= 0) {
-      setError("Quantity must be > 0");
-      return;
-    }
     const strikeScaled = BigInt(Math.round(strikeUsd * 1_000_000_000));
-    // Quantity is in dUSDC raw units. dUSDC has 6 decimals.
     const qtyScaled = BigInt(Math.round(qty * 1_000_000));
 
     const tx = buildMintBinary({
@@ -67,17 +139,6 @@ export function TradeForm({
       },
     );
   };
-
-  // Estimate cost from strike vs spot — very rough, just for UI feel.
-  // Real ask comes from get_trade_amounts on-chain.
-  const moneyness = (strikeUsd - oracle.spot) / oracle.spot;
-  const naivePay =
-    direction === "up"
-      ? Math.max(0.05, 0.5 - moneyness * 1.5)
-      : Math.max(0.05, 0.5 + moneyness * 1.5);
-  const naiveCost = parseFloat(qtyUsd) * Math.min(naivePay, 0.95);
-
-  const disabled = !account || !managerId || isPending;
 
   return (
     <div className="rounded-xl border border-border bg-card p-5">
@@ -126,9 +187,7 @@ export function TradeForm({
           />
           <div className="mt-1 font-mono text-[10px] text-text-faint">
             spot ${oracle.spot.toFixed(oracle.underlying.priceDecimals)} ·{" "}
-            <span
-              className={moneyness < 0 ? "text-success" : "text-danger"}
-            >
+            <span className={moneyness < 0 ? "text-success" : "text-danger"}>
               {moneyness > 0 ? "+" : ""}
               {(moneyness * 100).toFixed(2)}% from spot
             </span>
@@ -153,29 +212,34 @@ export function TradeForm({
         <div>
           <Label>Estimated cost</Label>
           <div className="rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-sm tabular-nums text-text">
-            ~${naiveCost.toFixed(2)}{" "}
+            ~${estimatedCost.toFixed(2)}{" "}
             <span className="text-[10px] text-text-faint">
-              ({(naivePay * 100).toFixed(0)}¢ per $1)
+              ({(fairPrice * 100).toFixed(0)}¢ per $1)
             </span>
           </div>
           <div className="mt-1 font-mono text-[10px] text-text-faint">
-            real ask = oracle + spread + util² (computed on-chain)
+            fair from SVI smile · contract adds spread + util²
           </div>
         </div>
       </div>
 
+      {/* ─ Validation summary + submit ─ */}
       <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="font-mono text-[10px] text-text-faint">
-          {!account
-            ? "connect wallet to mint"
-            : !managerId
-              ? "create a PredictManager first"
-              : "ready to mint — needs dUSDC in your manager"}
+        <div className="min-w-0 flex-1 font-mono text-[10px] text-text-faint">
+          {blocked ? (
+            <span className="text-warn">{reasons[0]}</span>
+          ) : (
+            <>
+              ready · manager has $
+              {managerDusdc?.toFixed(2) ?? "…"} · need ~$
+              {(estimatedCost * MANAGER_BALANCE_BUFFER).toFixed(2)}
+            </>
+          )}
         </div>
         <button
           onClick={handleSubmit}
           disabled={disabled}
-          className="rounded-lg bg-gradient-to-r from-accent to-accent-2 px-5 py-2 text-sm font-semibold text-bg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-gradient-to-r from-accent to-accent-hover px-5 py-2 text-sm font-semibold text-bg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isPending ? "minting…" : "mint position"}
         </button>

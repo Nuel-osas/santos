@@ -298,16 +298,17 @@ export function ManagerPanel({
                   : fundMode === "deposit" ? "deposit" : "withdraw"}
               </button>
             </div>
-            <div className="mt-1 flex justify-between font-mono text-[10px] text-text-faint">
+            <div className="mt-1.5 flex items-center justify-between gap-2 font-mono text-[10px] text-text-faint">
               <span>
                 {fundMode === "deposit" ? "from wallet" : "from manager"} →{" "}
                 {fundMode === "deposit" ? "into manager" : "into wallet"}
               </span>
               <button
+                type="button"
                 onClick={() => setFundAmount(sourceBalance.toFixed(2))}
-                className="hover:text-accent-2"
+                className="cursor-pointer rounded border border-accent/40 bg-accent-soft px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:border-accent hover:bg-accent/15 hover:text-accent-hover active:scale-[0.97]"
               >
-                max ${sourceBalance.toFixed(2)}
+                MAX · ${sourceBalance.toFixed(2)}
               </button>
             </div>
             {overBalance && (
