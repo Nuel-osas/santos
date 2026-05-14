@@ -14,6 +14,8 @@ import {
   getOracle,
   getUserPlpBalance,
   getUserDusdcBalance,
+  findUserPredictManagers,
+  type ManagerSummary,
   type OracleSummary,
   type Oracle,
   type VaultState,
@@ -33,7 +35,38 @@ export default function App() {
   const [oracleError, setOracleError] = useState<string | null>(null);
 
   const [selectedManagerId, setSelectedManagerId] = useState<string | null>(null);
+  const [managers, setManagers] = useState<ManagerSummary[]>([]);
   const [positionsRefreshKey, setPositionsRefreshKey] = useState(0);
+
+  // Discover the user's PredictManagers. Lifted up here so AppHeader + each
+  // page see the same list, and so creating a new manager (which bumps
+  // positionsRefreshKey via onMutate) refreshes everywhere at once.
+  useEffect(() => {
+    if (!account) {
+      setManagers([]);
+      setSelectedManagerId(null);
+      return;
+    }
+    let cancelled = false;
+    findUserPredictManagers(account.address)
+      .then((list) => {
+        if (cancelled) return;
+        setManagers(list);
+        if (list.length > 0 && !selectedManagerId) {
+          setSelectedManagerId(list[0].id);
+        } else if (
+          selectedManagerId &&
+          !list.some((m) => m.id === selectedManagerId)
+        ) {
+          setSelectedManagerId(list[0]?.id ?? null);
+        }
+      })
+      .catch((e) => console.warn("manager discovery failed:", e.message));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.address, positionsRefreshKey]);
 
   const [vault, setVault] = useState<VaultState | null>(null);
   const [userPlp, setUserPlp] = useState<number>(0);
@@ -159,7 +192,11 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AppShell>
+      <AppShell
+        managers={managers}
+        selectedManagerId={selectedManagerId}
+        onSelectManager={setSelectedManagerId}
+      >
         <Routes>
           <Route path="/" element={<Navigate to="/trade" replace />} />
           <Route

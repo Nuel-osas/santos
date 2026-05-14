@@ -144,6 +144,7 @@ export function TradeView({
             <ManagerPanel
               selectedManagerId={selectedManagerId}
               onSelectManager={onSelectManager}
+              onMutate={onMutate}
             />
           </div>
           {oracleState && (

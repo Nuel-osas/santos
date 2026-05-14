@@ -22,9 +22,11 @@ type FundMode = "deposit" | "withdraw";
 export function ManagerPanel({
   selectedManagerId,
   onSelectManager,
+  onMutate,
 }: {
   selectedManagerId: string | null;
   onSelectManager: (id: string | null) => void;
+  onMutate?: () => void;
 }) {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
@@ -102,6 +104,7 @@ export function ManagerPanel({
         onSuccess: async (result) => {
           await suiClient.waitForTransaction({ digest: result.digest });
           setReloadKey((k) => k + 1);
+          onMutate?.();
         },
         onError: (err: Error) => setError(err.message),
       },
@@ -146,6 +149,7 @@ export function ManagerPanel({
               await suiClient.waitForTransaction({ digest: r.digest });
               setLastDigest(r.digest);
               setReloadKey((k) => k + 1);
+          onMutate?.();
             },
             onError: (e: Error) => setError(e.message),
           },
@@ -164,6 +168,7 @@ export function ManagerPanel({
               await suiClient.waitForTransaction({ digest: r.digest });
               setLastDigest(r.digest);
               setReloadKey((k) => k + 1);
+          onMutate?.();
             },
             onError: (e: Error) => setError(e.message),
           },
@@ -332,23 +337,7 @@ export function ManagerPanel({
             </div>
           )}
 
-          {managers.length > 1 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {managers.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => onSelectManager(m.id)}
-                  className={`rounded-full border px-2.5 py-0.5 font-mono text-[10px] transition ${
-                    m.id === selectedManagerId
-                      ? "border-accent-2 text-accent-2"
-                      : "border-border text-text-dim hover:border-accent"
-                  }`}
-                >
-                  {m.id.slice(0, 8)}…
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Multi-manager switcher lives in AppHeader. */}
         </>
       )}
 
